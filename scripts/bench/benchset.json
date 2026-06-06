@@ -1,0 +1,68 @@
+{
+  "presets": { "motion-basic": "testsrc2=s={w}x{h}:rate={fps}:duration={sample_s},scroll=horizontal=0.003:vertical=0.001", "motion-detail": "testsrc2=s={w}x{h}:rate={fps}:duration={sample_s}[base];mandelbrot=s={w}x{h}:r={fps}[fx];[base][fx]blend=all_mode=overlay:all_opacity=0.35,hue=H=t*90", "motion-noise": "testsrc2=s={w}x{h}:rate={fps}:duration={sample_s},noise=all_strength=10:all_flags=t+u,hue=H=t*180" },
+  "suites": [
+    {
+      "group": "bundled",
+      "name": "01-baseline",
+      "title": { "title": "Baseline H.264 test", "description": "Short H.264 sanity gate.", "codec": "h264", "w": 1920, "h": 1080, "fps": 30, "kbps": 8000, "run_s": 3 },
+      "tests": [
+        { "_": "h264-baseline", "codec": "h264", "w": 1920, "h": 1080, "fps": 60, "kbps": 20000, "preset": "motion-basic", "sample_s": 3, "run_s": 3 }
+      ]
+    },
+    {
+      "group": "external",
+      "name": "02-capability-check",
+      "title": { "title": "Quick capability check", "description": "Mixed bitrate/resolution H.264 and HEVC", "codec": "h264", "w": 1920, "h": 1080, "fps": 30, "kbps": 8000, "run_s": 3 },
+      "source_buffer_mib": 128,
+      "tests": [
+        { "_": "h264-baseline     ", "codec": "h264", "w": 1920, "h": 1080, "fps": 60, "kbps": 20000, "preset": "motion-basic", "sample_s": 3, "run_s": 3 },
+        { "_": "hevc-4k-baseline  ", "codec": "hevc", "w": 3840, "h": 2160, "fps": 60, "kbps": 50000, "preset": "motion-basic", "sample_s": 3, "run_s": 3 },
+        { "_": "fps-1080p120      ", "codec": "hevc", "w": 1920, "h": 1080, "fps": 120, "kbps": 30000, "preset": "motion-basic", "sample_s": 3, "run_s": 3 },
+        { "_": "fps-4k120-compound", "codec": "hevc", "w": 3840, "h": 2160, "fps": 120, "kbps": 100000, "preset": "motion-basic", "sample_s": 3, "run_s": 3 },
+        { "_": "h264-cliff        ", "codec": "h264", "w": 2560, "h": 1440, "fps": 60, "kbps": 100000, "preset": "motion-detail", "sample_s": 3, "run_s": 3 },
+        { "_": "hevc-cliff        ", "codec": "hevc", "w": 3840, "h": 2160, "fps": 60, "kbps": 220000, "preset": "motion-detail", "sample_s": 3, "run_s": 3 }
+      ]
+    },
+    {
+      "group": "external",
+      "name": "03-bitrate-ladder",
+      "title": { "title": "HEVC 4K bitrate ladder", "description": "HEVC 4K60 bitrate ladder to find failure points.", "codec": "h264", "w": 1920, "h": 1080, "fps": 30, "kbps": 8000, "run_s": 3 },
+      "tests": [
+        { "_": "ladder-90mbps ", "codec": "hevc", "w": 3840, "h": 2160, "fps": 60, "kbps": 90000, "preset": "motion-detail", "sample_s": 3, "run_s": 3 },
+        { "_": "ladder-130mbps", "codec": "hevc", "w": 3840, "h": 2160, "fps": 60, "kbps": 130000, "preset": "motion-detail", "sample_s": 3, "run_s": 3 },
+        { "_": "ladder-180mbps", "codec": "hevc", "w": 3840, "h": 2160, "fps": 60, "kbps": 180000, "preset": "motion-detail", "sample_s": 3, "run_s": 3 }
+      ]
+    },
+    {
+      "group": "external",
+      "name": "04-burst-stress",
+      "title": { "title": "HEVC 4K burst stress", "description": "HEVC burst tolerance for ABR-style high-peak workloads.", "codec": "h264", "w": 1920, "h": 1080, "fps": 30, "kbps": 8000, "run_s": 3 },
+      "tests": [
+        { "_": "burst-120peak", "codec": "hevc", "w": 3840, "h": 2160, "fps": 60, "kbps": 60000, "peak_kbps": 120000, "preset": "motion-noise", "sample_s": 5, "run_s": 5 },
+        { "_": "burst-140peak", "codec": "hevc", "w": 3840, "h": 2160, "fps": 60, "kbps": 70000, "peak_kbps": 140000, "preset": "motion-noise", "sample_s": 5, "run_s": 5 }
+      ]
+    },
+    {
+      "group": "external",
+      "name": "05-frame-rate-ladder",
+      "title": { "title": "HEVC 1080p FPS ladder", "description": "HEVC 1080p ladder to probe cadence ceilings.", "codec": "h264", "w": 1920, "h": 1080, "fps": 30, "kbps": 8000, "run_s": 3 },
+      "source_buffer_mib": 256,
+      "tests": [
+        { "_": "rate-60fps ", "codec": "hevc", "w": 1920, "h": 1080, "fps": 60, "kbps": 30000, "preset": "motion-basic", "sample_s": 3, "run_s": 3 },
+        { "_": "rate-120fps", "codec": "hevc", "w": 1920, "h": 1080, "fps": 120, "kbps": 30000, "preset": "motion-basic", "sample_s": 3, "run_s": 3 },
+        { "_": "rate-144fps", "codec": "hevc", "w": 1920, "h": 1080, "fps": 144, "kbps": 30000, "preset": "motion-basic", "sample_s": 3, "run_s": 3 },
+        { "_": "rate-165fps", "codec": "hevc", "w": 1920, "h": 1080, "fps": 165, "kbps": 30000, "preset": "motion-basic", "sample_s": 3, "run_s": 3 },
+        { "_": "rate-240fps", "codec": "hevc", "w": 1920, "h": 1080, "fps": 240, "kbps": 30000, "preset": "motion-basic", "sample_s": 3, "run_s": 3 }
+      ]
+    },
+    {
+      "group": "external",
+      "name": "06-wild-limit",
+      "title": { "title": "HEVC 8K120 wild limit", "description": "Extreme HEVC 8K120 probe for hard decoder failure modes.", "codec": "h264", "w": 1920, "h": 1080, "fps": 30, "kbps": 8000, "run_s": 3 },
+      "source_buffer_mib": 512,
+      "tests": [
+        { "_": "wild-8k120", "codec": "hevc", "w": 7680, "h": 4320, "fps": 120, "kbps": 350000, "preset": "motion-basic", "sample_s": 3, "run_s": 3 }
+      ]
+    }
+  ]
+}

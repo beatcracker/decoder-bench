@@ -1,0 +1,33 @@
+[files]
+extend-exclude = [
+  "third_party",
+  "build",
+  "assets/.local",
+  "assets/build",
+  ".local",
+  ".wip",
+  ".benchgen",
+  "*.bench",
+  "*.h264",
+  "*.hevc",
+  "mise.lock",
+]
+
+[default.extend-identifiers]
+GameStream = "GameStream"
+HBC = "HBC"
+NDL = "NDL"
+PBNJSON = "PBNJSON"
+SS4S = "SS4S"
+appinfo = "appinfo"
+benchgen = "benchgen"
+lunasynccall = "lunasynccall"
+nal_read_ue = "nal_read_ue"
+pbnjson = "pbnjson"
+ue = "ue"
+webOS = "webOS"
+webOSBrew = "webOSBrew"
+
+[default.extend-words]
+restat = "restat"
+ue = "ue"

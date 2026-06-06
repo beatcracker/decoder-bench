@@ -1,0 +1,185 @@
+[settings]
+lockfile = true
+# Windows host task runs hand off to WSL so the repo uses one Linux toolchain.
+windows_default_inline_shell_args = "wsl.exe -e bash -l scripts/tasks/use-wsl-mise.sh"
+
+[env]
+DPRINT_CACHE_DIR = "{{config_root}}/.local/dprint-cache"
+NODE_NO_WARNINGS = "1"
+NINJA_STATUS = "[%f/%t %p | %r active] "
+
+[vars]
+toolchain_scripts_dir = "scripts/toolchain"
+get_repo_owned_files = "scripts/tasks/get-repo-owned-files.sh"
+run_owned_file_tool = "scripts/tasks/run-owned-file-tool.sh"
+shfmt_args = "-i 2 -ci"
+c_glob = "*.[ch]"
+shell_glob = "*.sh"
+python_glob = "*.py"
+toml_glob = "*.toml"
+markdown_glob = "*.md"
+
+[tools]
+python = { version = "3.14", os = ["linux"] }
+node = { version = "22", os = ["linux"] }
+"aqua:Kitware/CMake" = { version = "4.3.2", os = ["linux"] }
+"aqua:ninja-build/ninja" = { version = "latest", os = ["linux"] }
+"aqua:koalaman/shellcheck" = { version = "latest", os = ["linux"] }
+"aqua:mvdan/sh" = { version = "latest", os = ["linux"] }
+"aqua:BurntSushi/ripgrep" = { version = "latest", os = ["linux"] }
+"npm:@webos-tools/cli" = { version = "3.2.3", os = ["linux"] }
+"pipx:clang-format" = { version = "latest", os = ["linux"] }
+"aqua:dprint/dprint" = { version = "latest", os = ["linux"] }
+"aqua:tamasfe/taplo" = { version = "latest", os = ["linux"] }
+"aqua:crate-ci/typos" = { version = "latest", os = ["linux"] }
+"aqua:rvben/rumdl" = { version = "latest", os = ["linux"] }
+
+[tasks.host-setup]
+description = "Install supported Debian/Ubuntu host packages"
+run = "{{vars.toolchain_scripts_dir}}/install-debian-host-packages.sh"
+
+[tasks.sdk-install]
+description = "Install the pinned local webOSBrew native SDK"
+run = "{{vars.toolchain_scripts_dir}}/install-webos-sdk.sh"
+
+[tasks.toolchain-check]
+description = "Verify host tools, SDK, pkg-config, and webOS CLI"
+run = "{{vars.toolchain_scripts_dir}}/test-toolchain.sh"
+
+[tasks.deps-update]
+description = "Upgrade pinned source submodules"
+usage = """
+flag "--dry-run" help="Preview submodule updates"
+flag "--check" help="Fail if any submodule would update"
+"""
+run = [
+  "{{vars.toolchain_scripts_dir}}/update-source-submodule.sh third_party/ss4s refs/heads/main",
+  "{{vars.toolchain_scripts_dir}}/update-source-submodule.sh third_party/commons refs/heads/main",
+  "{{vars.toolchain_scripts_dir}}/update-source-submodule.sh third_party/inih latest-tag",
+  "{{vars.toolchain_scripts_dir}}/update-source-submodule.sh third_party/opus latest-tag",
+]
+
+[tasks.fmt-check]
+description = "Run read-only formatting checks"
+run = [
+  "dprint check",
+  "{{vars.get_repo_owned_files}} | {{vars.run_owned_file_tool}} '{{vars.c_glob}}' clang-format --dry-run --Werror",
+  "{{vars.get_repo_owned_files}} | {{vars.run_owned_file_tool}} '{{vars.shell_glob}}' shfmt {{vars.shfmt_args}} -d",
+  "{{vars.get_repo_owned_files}} | {{vars.run_owned_file_tool}} '{{vars.toml_glob}}' taplo format --check",
+]
+
+[tasks.fmt]
+description = "Format owned source, docs, and config files"
+run = [
+  "dprint fmt",
+  "{{vars.get_repo_owned_files}} | {{vars.run_owned_file_tool}} '{{vars.c_glob}}' clang-format -i",
+  "{{vars.get_repo_owned_files}} | {{vars.run_owned_file_tool}} '{{vars.shell_glob}}' shfmt {{vars.shfmt_args}} -w",
+  "{{vars.get_repo_owned_files}} | {{vars.run_owned_file_tool}} '{{vars.toml_glob}}' taplo format",
+]
+
+[tasks.fix]
+description = "Apply available automatic formatting fixes"
+run = [{ task = "fmt" }]
+
+[tasks.lint]
+description = "Run read-only lint and validation checks"
+run = [
+  "{{vars.get_repo_owned_files}} | {{vars.run_owned_file_tool}} '{{vars.shell_glob}}' shellcheck",
+  "{{vars.get_repo_owned_files}} | {{vars.run_owned_file_tool}} '{{vars.python_glob}}' python -m py_compile",
+  "{{vars.get_repo_owned_files}} | {{vars.run_owned_file_tool}} '{{vars.markdown_glob}}' rumdl check --config .rumdl.toml",
+  "{{vars.get_repo_owned_files}} | {{vars.run_owned_file_tool}} '{{vars.toml_glob}}' taplo lint --no-schema",
+  "typos --force-exclude .",
+  "python scripts/bench/benchplan.py plan all --print >/dev/null",
+]
+
+[tasks.test]
+description = "Run benchplan unit tests and desktop CTest"
+run = [
+  "python -m unittest scripts/bench/benchplan_test.py",
+  "cmake --workflow --preset desktop-check",
+]
+
+[tasks.check]
+description = "Run read-only formatting, lint, and tests"
+run = [{ task = "fmt-check" }, { task = "lint" }, { task = "test" }]
+
+[tasks.bench-plan]
+description = "Write or inspect bench plans: mise run bench-plan -- <selector> [--out path] [--print]"
+run = "python scripts/bench/benchplan.py plan"
+
+[tasks.bench-gen]
+description = "Generate bench content: mise run bench-gen -- <selector> [--out path]"
+run = "python scripts/bench/benchplan.py generate"
+
+[tasks.bench-status]
+description = "Report current, missing, dirty, and orphaned bench content: mise run bench-status -- <selector> [--out path] [--check-ready] [--check-clean]"
+run = "python scripts/bench/benchplan.py status"
+
+[tasks.bench-prune]
+description = "Remove generated bench assets not referenced by a selector: mise run bench-prune -- <selector> [--out path] [--dry-run]"
+run = "python scripts/bench/benchplan.py prune"
+
+[tasks.bundled-gen]
+description = "Generate packaged bundled benchmark media and prune stale generated assets"
+run = "python scripts/bench/benchplan.py generate bundled --bundled --prune-stale"
+
+[tasks.bundled-prune]
+description = "Remove bundled generated bench assets not referenced by scripts/bench/benchset.json"
+run = "python scripts/bench/benchplan.py prune bundled --bundled"
+
+[tasks.external-gen]
+description = "Generate external benchmark media and prune stale generated assets"
+run = "python scripts/bench/benchplan.py generate external --prune-stale"
+
+[tasks.external-prune]
+description = "Remove external generated bench assets not referenced by scripts/bench/benchset.json"
+run = "python scripts/bench/benchplan.py prune external"
+
+[tasks.build-desktop]
+description = "Configure and build desktop dummy decoder benchmark"
+run = "cmake --workflow --preset desktop-build"
+
+[tasks.build-webos]
+description = "Configure and build webOS decoder benchmark"
+run = "cmake --workflow --preset webos-build"
+
+[tasks.package-webos]
+description = "Generate bundled benchmark media and package the webOS IPK"
+depends = ["bundled-gen"]
+run = "cmake --workflow --preset webos-package"
+
+[tasks.release-prep]
+description = "Stage manual GitHub Release attachments"
+depends = ["package-webos"]
+run = [
+  "python scripts/bench/benchplan.py status external --check-ready",
+  "scripts/tasks/stage-release-artifacts.sh build/release build/webos assets/.local/bench/external",
+]
+
+[tasks.build]
+description = "Build and package webOS decoder benchmark IPK"
+depends = ["package-webos"]
+
+[tasks.device-provision]
+description = "Open the ares device manager"
+run = "ares-setup-device"
+
+[tasks.device-default-check]
+description = "Verify that a non-emulator ares default device is selected"
+hide = true
+run = "{{vars.toolchain_scripts_dir}}/require-default-device.sh"
+
+[tasks.device-check]
+description = "Verify rooted TV is reachable through ares"
+run = [{ task = "device-default-check" }, "ares-device --system-info"]
+
+[tasks.device-install]
+description = "Install already-built decoder benchmark IPK to rooted TV"
+run = [
+  { task = "device-default-check" },
+  "{{vars.toolchain_scripts_dir}}/install-webos-package.sh build/webos",
+]
+
+[tasks.clean]
+description = "Remove rebuildable build outputs and managed generator state while preserving fixture caches"
+run = "rm -rf build assets/.local/bench-state .pytest_cache && find scripts -type d -name '__pycache__' -prune -exec rm -rf {} + && { [ ! -d assets/.local/bench ] || find assets/.local/bench -type f -name '.*.tmp' -delete; }"

@@ -1,0 +1,119 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 4,
+    "minor": 3,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "desktop",
+      "displayName": "Desktop dummy build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/desktop",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
+      "name": "webos",
+      "displayName": "webOS ARM package build",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/webos",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/webos-arm.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "OFF",
+        "DECODER_BENCH_BUNDLED_BENCH_DIR": "${sourceDir}/assets/.local/bench/bundled"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "desktop",
+      "configurePreset": "desktop"
+    },
+    {
+      "name": "webos",
+      "configurePreset": "webos",
+      "targets": [
+        "decoder-bench"
+      ]
+    },
+    {
+      "name": "webos-ipk",
+      "configurePreset": "webos",
+      "targets": [
+        "decoder-bench-ipk"
+      ]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "desktop",
+      "configurePreset": "desktop",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ],
+  "workflowPresets": [
+    {
+      "name": "desktop-build",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "desktop"
+        },
+        {
+          "type": "build",
+          "name": "desktop"
+        }
+      ]
+    },
+    {
+      "name": "desktop-check",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "desktop"
+        },
+        {
+          "type": "build",
+          "name": "desktop"
+        },
+        {
+          "type": "test",
+          "name": "desktop"
+        }
+      ]
+    },
+    {
+      "name": "webos-build",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "webos"
+        },
+        {
+          "type": "build",
+          "name": "webos"
+        }
+      ]
+    },
+    {
+      "name": "webos-package",
+      "steps": [
+        {
+          "type": "configure",
+          "name": "webos"
+        },
+        {
+          "type": "build",
+          "name": "webos-ipk"
+        }
+      ]
+    }
+  ]
+}

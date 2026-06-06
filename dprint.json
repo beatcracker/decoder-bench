@@ -1,0 +1,25 @@
+{
+  "$schema": "https://dprint.dev/schemas/v0.json",
+  "lineWidth": 100,
+  "indentWidth": 2,
+  "useTabs": false,
+  "newLineKind": "lf",
+  "includes": [
+    "**/*.{md,json,jsonc,yml,yaml}"
+  ],
+  "excludes": [
+    "third_party/**",
+    "build/**",
+    ".local/**",
+    ".wip/**",
+    ".benchgen*/**"
+  ],
+  "plugins": [
+    "https://plugins.dprint.dev/json-0.21.3.wasm",
+    "https://plugins.dprint.dev/markdown-0.21.1.wasm",
+    "https://plugins.dprint.dev/g-plane/pretty_yaml-v0.6.0.wasm"
+  ],
+  "json": {},
+  "markdown": {},
+  "yaml": {}
+}

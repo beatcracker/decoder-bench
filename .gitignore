@@ -1,0 +1,32 @@
+# Build outputs and generated benchmark caches
+/build/release/
+/build/
+/assets/.local/
+/assets/build/
+
+# Local operator/agent scratch
+/.local/
+/.wip/
+
+# Python
+__pycache__/
+*.py[cod]
+
+# CMake
+/build.ninja
+/.ninja_deps
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+CMakeUserPresets.json
+
+# Generated benchmark media and plans
+*.hevc
+*.h264
+.benchgen/
+.ninja_log
+
+# Local mise overrides
+mise.local.toml
+mise.local.lock

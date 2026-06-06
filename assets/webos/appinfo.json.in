@@ -1,0 +1,12 @@
+{
+  "id": "@DECODER_BENCH_APP_ID@",
+  "version": "@PROJECT_VERSION@",
+  "vendor": "github.com/beatcracker",
+  "type": "native",
+  "main": "decoder-bench",
+  "title": "@DECODER_BENCH_APP_TITLE@",
+  "icon": "icon.png",
+  "largeIcon": "icon_large.png",
+  "iconColor": "#ffffff",
+  "rootRequired": @DECODER_BENCH_ROOT_REQUIRED_JSON@
+}
