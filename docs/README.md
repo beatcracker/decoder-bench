@@ -1,14 +1,14 @@
 # Documentation
 
-| Document                                       | Read this when...                                                                           |
+| Document                                       | What's inside                                                                               |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| [project-story.md](project-story.md)           | Project context, the rooted-TV and Homebrew Channel details, and the scope boundaries.      |
-| [build-and-release.md](build-and-release.md)   | To set up the toolchain, build the app, package it, install it, or stage release artifacts. |
-| [dependency-updates.md](dependency-updates.md) | To update pinned source submodules or shared `mise` tools.                                  |
-| [release-publishing.md](release-publishing.md) | To cut a maintainer release and upload GitHub Release assets.                               |
-| [runtime-contract.md](runtime-contract.md)     | Runtime behavior, suite layout, CSV outputs, exit codes, or launcher rules.                 |
-| [tv-usb-operation.md](tv-usb-operation.md)     | Rooted-TV launcher behavior, USB visibility, HBC helper flow, or app-jail debugging.        |
-| [known-issues.md](known-issues.md)             | List and the validation gaps.                                                               |
+| [project-story.md](project-story.md)           | Project context and scope, Homebrew Channel/root details.                                   |
+| [build-and-release.md](build-and-release.md)   | Toolchain setup, building/packaging/insatlling app, release prep.                           |
+| [dependency-updates.md](dependency-updates.md) | Pinned source submodules or shared `mise` tools update docs.                                |
+| [release-publishing.md](release-publishing.md) | How to cut release and upload GitHub Release assets.                                        |
+| [runtime-contract.md](runtime-contract.md)     | Runtime behavior, suite layout, CSV outputs, exit codes, launcher rules.                    |
+| [tv-usb-operation.md](tv-usb-operation.md)     | Rooted-TV launcher behavior, USB visibility, HBC helper flow, app-jail debugging.           |
+| [known-issues.md](known-issues.md)             | List and the existing validation gaps.                                                      |
 
 ## Repo map
 
