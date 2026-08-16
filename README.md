@@ -10,11 +10,11 @@ Native decoder benchmark for rooted LG webOS TVs.
 
 ## But why?
 
-While experimenting with Moonlight/Sunshine streaming on my LG C1 TV, I found that it could not [go over ~65 Mbps](https://github.com/mariotaku/moonlight-tv/wiki/FAQs#can-i-have-higher-framerate-than-65mbps-on-webos)
+While experimenting with Moonlight/Sunshine streaming on my LG C2 TV, I found that it could not [go over ~65 Mbps](https://github.com/mariotaku/moonlight-tv/wiki/FAQs#can-i-have-higher-framerate-than-65mbps-on-webos)
 .
 I got curious about the actual limits and built this: a native webOS app that stress-tests the video decoder pipeline.
 
-Result? It turns out, C1 can decode 4K@60 at 220 Mbps, so the 65 Mbps cap has nothing to do with the decoder.
+Result? It turns out, C2 can decode 4K@60 at 220 Mbps, so the 65 Mbps cap has nothing to do with the decoder.
 
 ## Usage
 
