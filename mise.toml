@@ -27,7 +27,7 @@ node = { version = "22", os = ["linux"] }
 "aqua:koalaman/shellcheck" = { version = "latest", os = ["linux"] }
 "aqua:mvdan/sh" = { version = "latest", os = ["linux"] }
 "aqua:BurntSushi/ripgrep" = { version = "latest", os = ["linux"] }
-"npm:@webos-tools/cli" = { version = "3.2.3", os = ["linux"] }
+"npm:@webos-tools/cli" = { version = "latest", os = ["linux"] }
 "pipx:clang-format" = { version = "latest", os = ["linux"] }
 "aqua:dprint/dprint" = { version = "latest", os = ["linux"] }
 "aqua:tamasfe/taplo" = { version = "latest", os = ["linux"] }

@@ -57,11 +57,8 @@ mise upgrade --local
 mise lock
 ```
 
-`@webos-tools/cli` is pinned to `3.2.3` until the `3.2.4` `ares-package`
-`rimraf` regression is released with an upstream fix. Track
-[webos-tools/cli#43](https://github.com/webos-tools/cli/issues/43) and
-[webos-tools/cli#44](https://github.com/webos-tools/cli/pull/44). Before
-unpinning it, verify that `mise run package-webos` succeeds with the newer CLI.
+`@webos-tools/cli` follows the latest released version and is resolved in
+`mise.lock`. After updating it, verify that `mise run package-webos` succeeds.
 
 Do not update user-level tools from this repo workflow. `mise outdated` may
 also list tools from `~/.config/mise/config.toml`; ignore those unless you are

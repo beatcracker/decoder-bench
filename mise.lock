@@ -379,7 +379,7 @@ checksum = "sha256:6c8d54f635feff4df76c2ca80f45332eb2ff57d25226edce36592e51a177e
 url = "https://nodejs.org/dist/v22.22.3/node-v22.22.3-win-x64.zip"
 
 [[tools."npm:@webos-tools/cli"]]
-version = "3.2.3"
+version = "3.2.5"
 backend = "npm:@webos-tools/cli"
 
 [[tools."pipx:clang-format"]]
