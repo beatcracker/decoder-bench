@@ -22,7 +22,7 @@ markdown_glob = "*.md"
 [tools]
 python = { version = "3.14", os = ["linux"] }
 node = { version = "22", os = ["linux"] }
-"aqua:Kitware/CMake" = { version = "4.3.2", os = ["linux"] }
+"aqua:Kitware/CMake" = { version = "4.4.2", os = ["linux"] }
 "aqua:ninja-build/ninja" = { version = "latest", os = ["linux"] }
 "aqua:koalaman/shellcheck" = { version = "latest", os = ["linux"] }
 "aqua:mvdan/sh" = { version = "latest", os = ["linux"] }

@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 1
           submodules: recursive
@@ -25,13 +25,13 @@ jobs:
           install: true
 
       - name: Cache dprint plugins
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .local/dprint-cache
           key: dprint-${{ hashFiles('dprint.json', 'scripts/bench/dprint.json') }}
 
       - name: Cache webOS SDK
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: .local/webos-sdk
           key: webos-sdk-${{ runner.os }}-${{ hashFiles('scripts/toolchain/install-webos-sdk.sh') }}
@@ -59,7 +59,7 @@ jobs:
           fi
 
       - name: Upload test IPK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: decoder-bench-webos-${{ github.sha }}
           path: build/webos/*.ipk
