@@ -6,8 +6,10 @@ Maintainer checklist for publishing decoder bench release assets to GitHub.
 
 This is a manual GitHub Release flow.
 
-CI runs checks and a webOS build on push and pull requests. CI does not publish
-release assets.
+CI runs checks, packages the webOS app, and uploads a temporary test-only IPK
+artifact on pushes and pull requests. CI does not create GitHub Releases,
+publish stable release assets, upload a Homebrew manifest, or change the
+webOS Brew catalog.
 
 ## Release inputs
 

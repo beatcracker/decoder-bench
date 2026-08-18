@@ -120,6 +120,31 @@ Generated `.bench`, `.h264`, and `.hevc` files are intentionally ignored by
 git. Prune tasks only remove generated bench artifacts inside the selected
 fixture cache.
 
+## CI test artifacts
+
+Successful pushes to `master` and pull requests package the webOS app and
+upload one test-only Actions artifact named with the commit SHA.
+
+To download a test IPK while signed in to GitHub:
+
+1. Open the repository's **Actions** tab and select the successful workflow run.
+2. Download `decoder-bench-webos-<commit-sha>` from the run's **Artifacts** section.
+3. Extract the downloaded ZIP to get the `.ipk` file.
+
+Install the extracted IPK with a configured webOS CLI target:
+
+```shell
+ares-install --device <target> path/to/io.github.beatcracker.decoderbench_<version>_arm.ipk
+```
+
+Alternatively, use the Install action in webOS Device Manager and select the
+extracted IPK.
+
+The Actions artifact contains only the IPK. It does not contain the Homebrew
+manifest or USB release bundle, does not create a GitHub Release, and cannot
+change the webOS Brew catalog. Stable release creation and Homebrew manifest
+publication remain manual.
+
 ## Outputs
 
 - Desktop build: `build/desktop/`

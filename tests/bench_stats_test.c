@@ -155,10 +155,67 @@ static void test_summary_csv_includes_verdict_reason(void) {
 
     assert(bench_stats_write_summary_csv(path, "scope", &row, 1) == 0);
     read_text_file(path, text, sizeof(text));
-    assert(strstr(text, "latency_growth_detected,verdict_reason,verdict_detail") != NULL);
+    assert(strstr(text, "latency_growth_detected,verdict_reason,verdict_detail,test_outcome") != NULL);
     assert(strstr(text, "\"WARN\"") != NULL);
     assert(strstr(text, "\"late-submit\",\"late=1/3 max_late=3333us\"") != NULL);
+    assert(strstr(text, "\"completed\"") != NULL);
     assert(remove(path) == 0);
+}
+
+static void test_unsupported_summary_is_neutral(void) {
+    BenchSummaryInputs inputs = explicit_inputs(180);
+    BenchSummaryRow row = {0};
+    char path[128];
+    char text[2048];
+
+    inputs.stop_reason = BENCH_STOP_NONE;
+    bench_stats_init_empty(&inputs, &row.summary);
+    row.test_outcome = BENCH_TEST_UNSUPPORTED;
+    (void)snprintf(row.test_name, sizeof(row.test_name), "%s", "hevc-test");
+    (void)snprintf(row.fixture, sizeof(row.fixture), "%s", "hevc-test.hevc");
+    row.info = (StreamInfo){
+        .codec = SS4S_VIDEO_H265,
+        .width = 3840,
+        .height = 2160,
+        .fps = 60,
+        .run_seconds = 3,
+    };
+
+    assert(row.summary.frames_submitted == 0);
+    assert(row.summary.feed_errors == 0);
+    assert(row.summary.late_submits == 0);
+    assert(row.summary.target_frames == 180);
+
+    int written = snprintf(path, sizeof(path), "/tmp/bench_stats_unsupported_%ld.csv", (long)getpid());
+    assert(written > 0);
+    assert((size_t)written < sizeof(path));
+    (void)remove(path);
+
+    assert(bench_stats_write_summary_csv(path, "scope", &row, 1) == 0);
+    read_text_file(path, text, sizeof(text));
+    assert(strstr(text, "\"HEVC\",3840,2160,60,3,\"\",0,180") != NULL);
+    assert(strstr(text, "\"unsupported-codec\",\"\",\"unsupported\"") != NULL);
+    assert(remove(path) == 0);
+}
+
+static void test_unsupported_aggregation_is_neutral(void) {
+    BenchVerdict worst = BENCH_VERDICT_PASS;
+    int completed = 0;
+    int unsupported = 0;
+
+    bench_stats_aggregate_outcome(BENCH_TEST_UNSUPPORTED, BENCH_VERDICT_FAIL, &worst, &completed, &unsupported);
+    bench_stats_aggregate_outcome(BENCH_TEST_UNSUPPORTED, BENCH_VERDICT_WARN, &worst, &completed, &unsupported);
+
+    assert(worst == BENCH_VERDICT_PASS);
+    assert(completed == 0);
+    assert(unsupported == 2);
+
+    bench_stats_aggregate_outcome(BENCH_TEST_COMPLETED, BENCH_VERDICT_WARN, &worst, &completed, &unsupported);
+    bench_stats_aggregate_outcome(BENCH_TEST_UNSUPPORTED, BENCH_VERDICT_FAIL, &worst, &completed, &unsupported);
+
+    assert(worst == BENCH_VERDICT_WARN);
+    assert(completed == 1);
+    assert(unsupported == 3);
 }
 
 int main(void) {
@@ -168,5 +225,7 @@ int main(void) {
     test_severe_growth_fails();
     test_latency_probe_stall_tracks_longest_run();
     test_summary_csv_includes_verdict_reason();
+    test_unsupported_summary_is_neutral();
+    test_unsupported_aggregation_is_neutral();
     return 0;
 }

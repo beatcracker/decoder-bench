@@ -26,12 +26,14 @@
 #include "ss4s.h"
 #include "ss4s_modules.h"
 
+#include "bench_decoder_support.h"
 #include "bench_feeder.h"
 #include "bench_path.h"
 #include "bench_platform.h"
 #include "bench_stats.h"
 #include "bench_suite.h"
 #include "bench_types.h"
+#include "bench_webos_compat.h"
 #ifdef TARGET_WEBOS
 #include "bench_usb_webos.h"
 #endif
@@ -68,6 +70,7 @@ typedef struct test_run_result {
     BenchSummary summary;
     char fixture[BENCH_MAX_NAME_LEN];
     BenchVerdict verdict;
+    BenchTestOutcome test_outcome;
 } test_run_result_t;
 
 typedef enum run_status {
@@ -125,7 +128,8 @@ static void print_usage(const char *prog) {
            "  --loop                Rerun the resolved plan until stopped\n"
            "\n"
            "Exit codes:\n"
-           "  0  All completed tests PASS or the run was stopped cleanly\n"
+           "  0  All completed tests PASS, every requested codec is unsupported,\n"
+           "     or the run was stopped cleanly\n"
            "  1  One or more completed tests WARN, none FAIL\n"
            "  2  One or more completed tests FAIL\n"
            "  3  Invalid config, fixture, or CLI usage\n",
@@ -555,6 +559,7 @@ static void fill_summary_row(BenchSummaryRow *row, const char *test_name, const 
     (void)snprintf(row->fixture, sizeof(row->fixture), "%s", result->fixture);
     row->info = result->stream;
     row->summary = result->summary;
+    row->test_outcome = result->test_outcome;
 }
 
 static void maybe_write_summary_csv(const char *results_root, const char *scope_name, const BenchSummaryRow *rows,
@@ -603,10 +608,22 @@ static BenchSourceOutcome prefetch_source_for_test(const char *fixture_path, uns
 
 /* ---------- Single test runner ---------- */
 
+static void set_early_failure(const BenchSummaryInputs *inputs, BenchStopReason stop_reason,
+                              test_run_result_t *result) {
+    if (inputs == NULL || result == NULL) {
+        return;
+    }
+    bench_stats_init_empty(inputs, &result->summary);
+    result->summary.stop_reason = stop_reason;
+    result->summary.verdict = BENCH_VERDICT_FAIL;
+    result->verdict = BENCH_VERDICT_FAIL;
+}
+
 static run_status_t run_single_test_with_source(const char *scope_name, const char *test_name, const char *fixture_path,
                                                 BenchSource *source, int fps, int run_seconds, bool auto_mode,
-                                                const char *results_root, bool require_decoder_latency,
-                                                int viewport_width, int viewport_height,
+                                                const char *results_root,
+                                                const SS4S_VideoCapabilities *video_capabilities,
+                                                bool require_decoder_latency, int viewport_width, int viewport_height,
                                                 test_run_result_t *out_result) {
     SS4S_Player *player = NULL;
     bool video_open = false;
@@ -625,6 +642,7 @@ static run_status_t run_single_test_with_source(const char *scope_name, const ch
 
     memset(out_result, 0, sizeof(*out_result));
     out_result->verdict = BENCH_VERDICT_PASS;
+    out_result->test_outcome = BENCH_TEST_COMPLETED;
 
     if (g_interrupted != 0) {
         out_result->stopped = true;
@@ -672,10 +690,28 @@ static run_status_t run_single_test_with_source(const char *scope_name, const ch
     }
     max_records = (int)target_frames_64;
 
+    BenchSummaryInputs inputs = {
+        .run_length_mode = auto_mode ? BENCH_RUN_LENGTH_AUTO : BENCH_RUN_LENGTH_EXPLICIT,
+        .target_frames = (int)target_frames_64,
+        .duration_sec = effective_run_seconds,
+        .stop_reason = BENCH_STOP_NONE,
+        .source_error = BENCH_SOURCE_ERROR_NONE,
+        .source_mode = mode,
+        .source_buffer_mib = buf_mib,
+    };
+
+    if (video_capabilities != NULL && !bench_decoder_supports_codec(video_capabilities, codec)) {
+        printf("  UNSUPPORTED: selected decoder does not advertise this codec\n");
+        out_result->test_outcome = BENCH_TEST_UNSUPPORTED;
+        bench_stats_init_empty(&inputs, &out_result->summary);
+        status = RUN_STATUS_OK;
+        goto cleanup;
+    }
+
     player = SS4S_PlayerOpen();
     if (player == NULL) {
         printf("  FAIL: SS4S_PlayerOpen failed\n");
-        out_result->verdict = BENCH_VERDICT_FAIL;
+        set_early_failure(&inputs, BENCH_STOP_DECODER_FAIL, out_result);
         status = RUN_STATUS_OK;
         goto cleanup;
     }
@@ -688,9 +724,17 @@ static run_status_t run_single_test_with_source(const char *scope_name, const ch
         .frameRateNumerator = fps,
         .frameRateDenominator = 1,
     };
-    if (SS4S_PlayerVideoOpen(player, &vinfo) != SS4S_VIDEO_OPEN_OK) {
-        printf("  FAIL: SS4S_PlayerVideoOpen failed\n");
-        out_result->verdict = BENCH_VERDICT_FAIL;
+    SS4S_VideoOpenResult video_open_result = SS4S_PlayerVideoOpen(player, &vinfo);
+    if (bench_decoder_open_is_unsupported(video_open_result)) {
+        printf("  UNSUPPORTED: selected decoder explicitly rejected this codec\n");
+        out_result->test_outcome = BENCH_TEST_UNSUPPORTED;
+        bench_stats_init_empty(&inputs, &out_result->summary);
+        status = RUN_STATUS_OK;
+        goto cleanup;
+    }
+    if (video_open_result != SS4S_VIDEO_OPEN_OK) {
+        printf("  FAIL: SS4S_PlayerVideoOpen failed (%d)\n", (int)video_open_result);
+        set_early_failure(&inputs, BENCH_STOP_DECODER_FAIL, out_result);
         status = RUN_STATUS_OK;
         goto cleanup;
     }
@@ -699,7 +743,7 @@ static run_status_t run_single_test_with_source(const char *scope_name, const ch
     records = calloc((size_t)max_records, sizeof(FrameRecord));
     if (records == NULL) {
         printf("  FAIL: cannot allocate frame records\n");
-        out_result->verdict = BENCH_VERDICT_FAIL;
+        set_early_failure(&inputs, BENCH_STOP_NONE, out_result);
         status = RUN_STATUS_OK;
         goto cleanup;
     }
@@ -721,15 +765,8 @@ static run_status_t run_single_test_with_source(const char *scope_name, const ch
         goto cleanup;
     }
 
-    BenchSummaryInputs inputs = {
-        .run_length_mode = auto_mode ? BENCH_RUN_LENGTH_AUTO : BENCH_RUN_LENGTH_EXPLICIT,
-        .target_frames = (int)target_frames_64,
-        .duration_sec = effective_run_seconds,
-        .stop_reason = stop_reason,
-        .source_error = source_error,
-        .source_mode = mode,
-        .source_buffer_mib = buf_mib,
-    };
+    inputs.stop_reason = stop_reason;
+    inputs.source_error = source_error;
     bench_stats_compute(records, records_written, fps, &inputs, require_decoder_latency, &out_result->summary);
     out_result->verdict = out_result->summary.verdict;
 
@@ -804,13 +841,14 @@ static int storage_warmup_if_needed(const BenchSuite *suite) {
 }
 
 static run_status_t run_direct_once(const execution_plan_t *plan, const cli_opts_t *opts, const char *results_root,
-                                    bool require_decoder_latency, int viewport_width, int viewport_height,
-                                    BenchVerdict *worst, int *completed_tests) {
+                                    const SS4S_VideoCapabilities *video_capabilities, bool require_decoder_latency,
+                                    int viewport_width, int viewport_height, BenchVerdict *worst, int *completed_tests,
+                                    int *unsupported_tests) {
     test_run_result_t result;
     BenchSummaryRow row;
     run_status_t status;
 
-    if (plan == NULL || opts == NULL || worst == NULL || completed_tests == NULL) {
+    if (plan == NULL || opts == NULL || worst == NULL || completed_tests == NULL || unsupported_tests == NULL) {
         return RUN_STATUS_INVALID;
     }
 
@@ -824,26 +862,24 @@ static run_status_t run_direct_once(const execution_plan_t *plan, const cli_opts
         return RUN_STATUS_INVALID;
     }
 
-    status = run_single_test_with_source(plan->direct_scope, plan->direct_scope, plan->direct_file, src,
-                                         plan->direct_fps, plan->direct_run_seconds, auto_mode, results_root,
-                                         require_decoder_latency, viewport_width, viewport_height, &result);
+    status = run_single_test_with_source(
+        plan->direct_scope, plan->direct_scope, plan->direct_file, src, plan->direct_fps, plan->direct_run_seconds,
+        auto_mode, results_root, video_capabilities, require_decoder_latency, viewport_width, viewport_height, &result);
     bench_source_close(src);
     if (status != RUN_STATUS_OK) {
         return status;
     }
 
-    if (result.verdict > *worst) {
-        *worst = result.verdict;
-    }
-    (*completed_tests)++;
     fill_summary_row(&row, plan->direct_scope, &result);
+    bench_stats_aggregate_outcome(result.test_outcome, result.verdict, worst, completed_tests, unsupported_tests);
     maybe_write_summary_csv(results_root, plan->direct_scope, &row, 1);
     return RUN_STATUS_OK;
 }
 
 static run_status_t run_suite_once(const char *bench_root, const char *suite_name, const cli_opts_t *opts,
-                                   const char *results_root, bool require_decoder_latency, int viewport_width,
-                                   int viewport_height, BenchVerdict *worst, int *completed_tests) {
+                                   const char *results_root, const SS4S_VideoCapabilities *video_capabilities,
+                                   bool require_decoder_latency, int viewport_width, int viewport_height,
+                                   BenchVerdict *worst, int *completed_tests, int *unsupported_tests) {
     BenchSuite suite;
     BenchSummaryRow rows[BENCH_MAX_TESTS];
     int row_count = 0;
@@ -853,7 +889,8 @@ static run_status_t run_suite_once(const char *bench_root, const char *suite_nam
     bool prefetch_scheduling_failed = false;
     run_status_t result_status = RUN_STATUS_OK;
 
-    if (bench_root == NULL || suite_name == NULL || opts == NULL || worst == NULL || completed_tests == NULL) {
+    if (bench_root == NULL || suite_name == NULL || opts == NULL || worst == NULL || completed_tests == NULL ||
+        unsupported_tests == NULL) {
         return RUN_STATUS_INVALID;
     }
     if (build_suite_path(bench_root, suite_name, suite_path, sizeof(suite_path)) != 0 ||
@@ -906,10 +943,10 @@ static run_status_t run_suite_once(const char *bench_root, const char *suite_nam
         }
 
         test_run_result_t result;
-        run_status_t status =
-            run_single_test_with_source(suite.name, suite.tests[i].name, suite.tests[i].file, current_source,
-                                        suite.tests[i].fps, suite.tests[i].run_seconds, false, results_root,
-                                        require_decoder_latency, viewport_width, viewport_height, &result);
+        run_status_t status = run_single_test_with_source(
+            suite.name, suite.tests[i].name, suite.tests[i].file, current_source, suite.tests[i].fps,
+            suite.tests[i].run_seconds, false, results_root, video_capabilities, require_decoder_latency,
+            viewport_width, viewport_height, &result);
         bench_source_close(current_source);
         current_source = NULL;
 
@@ -923,11 +960,9 @@ static run_status_t run_suite_once(const char *bench_root, const char *suite_nam
         }
 
         if (!suite.tests[i].skip_stats) {
-            if (result.verdict > *worst) {
-                *worst = result.verdict;
-            }
             fill_summary_row(&rows[row_count++], suite.tests[i].name, &result);
-            (*completed_tests)++;
+            bench_stats_aggregate_outcome(result.test_outcome, result.verdict, worst, completed_tests,
+                                          unsupported_tests);
         }
         if (prefetch_scheduling_failed) {
             fprintf(stderr, "\nSuite '%s': could not schedule prefetch for test '%s'; aborting suite.\n", suite.name,
@@ -1041,13 +1076,18 @@ int main(int argc, char *argv[]) {
     bool show_overall = false;
     bool stopped = false;
     bool modules_ready = false;
+    bool os_info_ready = false;
     bool sdl_ready = false;
     bool ss4s_ready = false;
     SDL_Window *window = NULL;
     SDL_Renderer *renderer = NULL;
     array_list_t modules = {0};
+    os_info_t os_info = {0};
+    SS4S_VideoCapabilities video_capabilities = {0};
+    bool video_capabilities_available = false;
     BenchVerdict worst = BENCH_VERDICT_PASS;
     int completed_tests = 0;
+    int unsupported_tests = 0;
     int viewport_width = 0;
     int viewport_height = 0;
     char results_root[BENCH_MAX_PATH_LEN];
@@ -1122,11 +1162,32 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
-    os_info_t os_info = {0};
-    os_info_get(&os_info);
+    int os_info_rc = os_info_get(&os_info);
+    os_info_ready = true;
+    if (os_info_rc != 0) {
+        printf("Detected sdkVersion: unknown (system-property query failed)\n");
+    } else {
+        char *sdk_version = version_info_str(&os_info.version);
+        if (sdk_version == NULL) {
+            printf("Detected sdkVersion: unknown (invalid system-property value)\n");
+        } else {
+            printf("Detected sdkVersion: %s\n", sdk_version);
+            free(sdk_version);
+        }
+    }
+
+#ifdef TARGET_WEBOS
+    const char *required_video_module_id = bench_webos_ndl_module_id(os_info.version.major, os_info.version.minor);
+    if (os_info_rc != 0 || required_video_module_id == NULL) {
+        fprintf(stderr, "Compatibility error: sdkVersion is unknown or has no compatible NDL backend\n");
+        bench_platform_toast("Cannot match webOS version to decoder", false, BENCH_TOAST_ERROR_TIMEOUT_SEC);
+        goto cleanup;
+    }
+    printf("Compatibility route: sdkVersion -> %s\n", required_video_module_id);
+#endif
 
     if (SS4S_ModulesList(&modules, &os_info) != 0) {
-        fprintf(stderr, "Failed to list SS4S modules\n");
+        fprintf(stderr, "Compatibility error: failed to load SS4S module index for detected sdkVersion\n");
         bench_platform_toast("Cannot list decoder modules", false, BENCH_TOAST_ERROR_TIMEOUT_SEC);
         goto cleanup;
     }
@@ -1135,12 +1196,25 @@ int main(int argc, char *argv[]) {
     SS4S_ModulePreferences module_preferences_storage;
     const SS4S_ModulePreferences *module_preferences = NULL;
     bench_platform_get_module_preferences(&module_preferences_storage, &module_preferences);
+#ifdef TARGET_WEBOS
+    module_preferences_storage.video_module = required_video_module_id;
+    module_preferences = &module_preferences_storage;
+#endif
 
-    SS4S_ModuleSelection selected;
-    if (!SS4S_ModulesSelect(&modules, module_preferences, &selected, true)) {
-        fprintf(stderr, "Failed to select SS4S modules\n");
+    SS4S_ModuleSelection selected = {0};
+    bool selection_complete = SS4S_ModulesSelect(&modules, module_preferences, &selected, true);
+    if (selected.video_module == NULL) {
+#ifdef TARGET_WEBOS
+        fprintf(stderr, "Compatibility error: module '%s' is unavailable or its loader/check rejected video\n",
+                required_video_module_id);
+#else
+        fprintf(stderr, "Failed to select an SS4S video module: loader/check rejected every candidate\n");
+#endif
         bench_platform_toast("Cannot select decoder module", false, BENCH_TOAST_ERROR_TIMEOUT_SEC);
         goto cleanup;
+    }
+    if (!selection_complete) {
+        printf("Audio module unavailable; continuing with the selected video module\n");
     }
 
     const char *video_module_id = SS4S_ModuleInfoGetId(selected.video_module);
@@ -1148,6 +1222,12 @@ int main(int argc, char *argv[]) {
     bool require_decoder_latency = video_module_group != NULL && strcmp(video_module_group, "ndl") == 0;
 
 #ifdef TARGET_WEBOS
+    if (video_module_id == NULL || strcmp(video_module_id, required_video_module_id) != 0) {
+        fprintf(stderr, "Compatibility error: selected module '%s', expected '%s' for detected sdkVersion\n",
+                video_module_id != NULL ? video_module_id : "(none)", required_video_module_id);
+        bench_platform_toast("Wrong decoder module for webOS version", false, BENCH_TOAST_ERROR_TIMEOUT_SEC);
+        goto cleanup;
+    }
     if (video_module_group == NULL || strcmp(video_module_group, "ndl") != 0) {
         fprintf(stderr, "Refusing non-NDL video module on webOS: %s\n",
                 video_module_group != NULL ? video_module_group : "(none)");
@@ -1156,7 +1236,9 @@ int main(int argc, char *argv[]) {
     }
 #endif
 
-    printf("Video module: %s\n", SS4S_ModuleInfoGetName(selected.video_module));
+    const char *video_module_name = SS4S_ModuleInfoGetName(selected.video_module);
+    printf("Selected video module: %s (%s)\n", video_module_id,
+           video_module_name != NULL ? video_module_name : "unnamed");
 
     bench_platform_apply_sdl_hints();
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
@@ -1171,7 +1253,7 @@ int main(int argc, char *argv[]) {
         .videoDriver = video_module_id,
     };
     if (SS4S_Init(launch_ctx.argc, launch_ctx.argv, &config) != 0) {
-        fprintf(stderr, "SS4S_Init failed\n");
+        fprintf(stderr, "Compatibility error: SS4S_Init failed for selected module '%s'\n", video_module_id);
         bench_platform_toast("Decoder startup failed", false, BENCH_TOAST_ERROR_TIMEOUT_SEC);
         goto cleanup;
     }
@@ -1236,6 +1318,12 @@ int main(int argc, char *argv[]) {
         bench_platform_toast("Decoder post-init failed", false, BENCH_TOAST_ERROR_TIMEOUT_SEC);
         goto cleanup;
     }
+    video_capabilities_available = SS4S_GetVideoCapabilities(&video_capabilities);
+    if (video_capabilities_available) {
+        printf("Video capabilities: codec mask=0x%x\n", (unsigned int)video_capabilities.codecs);
+    } else {
+        fprintf(stderr, "Warning: selected video module did not report capabilities; relying on video-open result\n");
+    }
 
     BenchTimerProbe timer_probe;
     if (bench_timer_probe(30, 5000, &timer_probe) == 0) {
@@ -1277,13 +1365,15 @@ int main(int argc, char *argv[]) {
         }
 
         if (plan.kind == EXECUTION_PLAN_DIRECT_FILE) {
-            status = run_direct_once(&plan, &opts, results_root_arg, require_decoder_latency, viewport_width,
-                                     viewport_height, &worst, &completed_tests);
+            status = run_direct_once(&plan, &opts, results_root_arg,
+                                     video_capabilities_available ? &video_capabilities : NULL, require_decoder_latency,
+                                     viewport_width, viewport_height, &worst, &completed_tests, &unsupported_tests);
         } else {
             for (int i = 0; i < plan.suite_count && status == RUN_STATUS_OK && g_interrupted == 0; i++) {
                 status =
                     run_suite_once(plan.bench_root, plan.suite_names[i], &opts, results_root_arg,
-                                   require_decoder_latency, viewport_width, viewport_height, &worst, &completed_tests);
+                                   video_capabilities_available ? &video_capabilities : NULL, require_decoder_latency,
+                                   viewport_width, viewport_height, &worst, &completed_tests, &unsupported_tests);
             }
         }
 
@@ -1317,6 +1407,9 @@ cleanup:
         } else if (stopped) {
             printf("\n=== Overall: %s (stopped) ===\n", bench_verdict_str(worst));
             bench_platform_toast("\xe2\x8f\xb9 Benchmark stopped", true, BENCH_TOAST_WARN_TIMEOUT_SEC);
+        } else if (completed_tests == 0 && unsupported_tests > 0) {
+            printf("\n=== Overall: UNSUPPORTED ===\n");
+            bench_platform_toast("Requested codec is unsupported", true, BENCH_TOAST_WARN_TIMEOUT_SEC);
         } else {
             printf("\n=== Overall: %s ===\n", bench_verdict_str(worst));
             switch (worst) {
@@ -1347,6 +1440,9 @@ cleanup:
     }
     if (modules_ready) {
         SS4S_ModulesListClear(&modules);
+    }
+    if (os_info_ready) {
+        os_info_clear(&os_info);
     }
     if (sdl_ready) {
         SDL_Quit();

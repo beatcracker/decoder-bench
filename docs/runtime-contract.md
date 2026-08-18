@@ -14,7 +14,8 @@ setup, Moonlight UI behavior, or end-to-end streaming.
 
 ## Runtime rules
 
-- webOS uses the SS4S NDL video module and refuses non-NDL video modules.
+- webOS selects the compatible SS4S NDL video module from `sdkVersion` and
+  refuses non-NDL video modules.
 - Desktop builds use the SS4S dummy module for parser, suite, and CLI
   validation only.
 - The core runtime feeds one complete access unit per frame and records timing
@@ -28,6 +29,27 @@ setup, Moonlight UI behavior, or end-to-end streaming.
   distinct stop reasons.
 - Source reads, prefetch reads, and warmup reads are serialized in 1 MiB chunks
   to avoid USB seek thrash.
+
+## webOS decoder compatibility
+
+One app ID and one IPK carry both NDL backends:
+
+- webOS 4.x selects `ndl-webos4`, which links against NDL v1 and advertises
+  H.264 only.
+- webOS 5 or newer selects `ndl-webos5`, which links against NDL v2 and keeps
+  the existing H.264 and HEVC behavior.
+
+The v1 module index retains the upstream `>=3.5,<5` eligibility range. This
+project claims and tests compatibility only for webOS 4.x in that range.
+
+Module selection is video-only. A valid NDL video module may start even when
+SS4S declines audio. Startup logs the detected `sdkVersion`, selected module
+ID, and any module loader/check failure. Unknown versions and an eligible
+module that cannot load stop with a compatibility error.
+
+There is no SMP fallback. After initialization, the runtime queries the video
+capability mask. A missing codec bit or
+`SS4S_VIDEO_OPEN_UNSUPPORTED_CODEC` produces an unsupported test outcome.
 
 ## Inputs
 
@@ -59,6 +81,14 @@ Summary rows include at least these operator-facing fields:
 - `latency_probe_stall_max_frames`
 - `verdict_reason`
 - `verdict_detail`
+- `test_outcome`
+
+Unsupported rows set `test_outcome=unsupported`, leave `verdict` empty, keep
+all measured frame metrics at zero, and use
+`verdict_reason=unsupported-codec`. They do not produce a raw frame CSV.
+Unsupported rows are excluded from PASS/WARN/FAIL aggregation. If every
+requested row is unsupported, the overall result is `UNSUPPORTED` with exit
+code `0`.
 
 `source_mode` is:
 
@@ -67,7 +97,7 @@ Summary rows include at least these operator-facing fields:
 
 Exit codes are:
 
-- `0`: pass or stopped by operator
+- `0`: pass, unsupported-only, or stopped by operator
 - `1`: warn
 - `2`: fail
 - `3`: invalid input or configuration

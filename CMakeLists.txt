@@ -229,6 +229,35 @@ if (TARGET_WEBOS)
             "weight = 50\n"
             "conflicts = lgnc\n"
             "os_version = >=5\n\n")
+
+    add_library(ss4s-module-ndl-webos4 SHARED
+            third_party/ss4s/modules/webos/ndl/webos4/ndl_module.c
+            third_party/ss4s/modules/webos/ndl/webos4/ndl_player.c
+            third_party/ss4s/modules/webos/ndl/webos4/ndl_audio.c
+            third_party/ss4s/modules/webos/ndl/webos4/ndl_video.c)
+    target_include_directories(ss4s-module-ndl-webos4 PRIVATE
+            third_party/ss4s/modules/webos/ndl/webos4
+            third_party/ss4s/modules/webos/utils
+            ${_NDL_DIRECTMEDIA_INCLUDE_DIRS})
+    target_link_libraries(ss4s-module-ndl-webos4 PRIVATE
+            ss4s-module-api
+            PkgConfig::NDL_DIRECTMEDIA
+            Threads::Threads
+            ${CMAKE_DL_LIBS}
+            ss4s-webos-utils)
+    target_compile_definitions(ss4s-module-ndl-webos4 PRIVATE _GNU_SOURCE)
+    target_compile_options(ss4s-module-ndl-webos4 PRIVATE -Wno-error=attributes)
+    decoder_bench_ss4s_module(ss4s-module-ndl-webos4 ndl-webos4)
+    add_dependencies(ss4s ss4s-module-ndl-webos4)
+    file(APPEND "${DECODER_BENCH_SS4S_MODULE_INI}"
+            "[ndl-webos4]\n"
+            "name = webOS 4 NDL\n"
+            "group = ndl\n"
+            "audio = true\n"
+            "video = true\n"
+            "weight = 50\n"
+            "conflicts = lgnc\n"
+            "os_version = >=3.5,<5\n\n")
 else ()
     add_library(ss4s-module-dummy SHARED
             third_party/ss4s/modules/dummy/dummy_module.c
@@ -310,6 +339,8 @@ configure_file(assets/webos/appinfo.json.in ${CMAKE_CURRENT_BINARY_DIR}/appinfo.
 add_library(bench-core STATIC
         src/bench_annexb.c
         src/bench_path.c
+        src/bench_webos_compat.c
+        src/bench_decoder_support.c
         src/bench_feeder.c
         src/bench_source.c
         src/bench_stats.c
@@ -366,6 +397,8 @@ if (BUILD_TESTING)
     add_library(bench-core-testhooks STATIC
             src/bench_annexb.c
             src/bench_path.c
+            src/bench_webos_compat.c
+            src/bench_decoder_support.c
             src/bench_feeder.c
             src/bench_source.c
             src/bench_stats.c
@@ -417,6 +450,22 @@ if (BUILD_TESTING)
         target_link_libraries(tests_bench_stats PRIVATE bench-core-testhooks)
         decoder_bench_c_target(tests_bench_stats)
         add_test(NAME bench-stats COMMAND tests_bench_stats)
+
+    add_executable(tests_bench_webos_compat tests/bench_webos_compat_test.c)
+    target_link_libraries(tests_bench_webos_compat PRIVATE bench-core-testhooks)
+    decoder_bench_c_target(tests_bench_webos_compat)
+    add_test(NAME bench-webos-compat COMMAND tests_bench_webos_compat)
+
+    add_executable(tests_bench_decoder_support tests/bench_decoder_support_test.c)
+    target_link_libraries(tests_bench_decoder_support PRIVATE bench-core-testhooks)
+    decoder_bench_c_target(tests_bench_decoder_support)
+    add_test(NAME bench-decoder-support COMMAND tests_bench_decoder_support)
+
+    add_executable(tests_bench_video_only_selection tests/bench_video_only_selection_test.c)
+    target_link_libraries(tests_bench_video_only_selection PRIVATE commons-ss4s-modules-list)
+    target_link_options(tests_bench_video_only_selection PRIVATE "LINKER:--wrap=SS4S_ModuleCheck")
+    decoder_bench_c_target(tests_bench_video_only_selection)
+    add_test(NAME bench-video-only-selection COMMAND tests_bench_video_only_selection)
 
     add_executable(tests_bench_ndl_webos_detect
             tests/bench_ndl_webos_detect_test.c
@@ -473,6 +522,9 @@ if (TARGET_WEBOS)
             COMMAND ${CMAKE_COMMAND} -E copy ${DECODER_BENCH_ASSET_DIR}/icon_large.png ${BENCH_STAGING_DIR}/
             COMMAND ${CMAKE_COMMAND} -E copy_directory ${DECODER_BENCH_BUNDLED_BENCH_DIR}/suites ${BENCH_STAGING_DIR}/bench/suites/
             COMMAND ${CMAKE_COMMAND} -E copy_directory ${DECODER_BENCH_BUNDLED_BENCH_DIR}/samples ${BENCH_STAGING_DIR}/bench/samples/
+            COMMAND ${CMAKE_COMMAND}
+                    -DDECODER_BENCH_STAGING_DIR=${BENCH_STAGING_DIR}
+                    -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/verify-webos-modules.cmake
             COMMAND ares-package ${BENCH_STAGING_DIR}/ -o ${CMAKE_BINARY_DIR}
             COMMAND ${CMAKE_COMMAND}
                     "-DDECODER_BENCH_PACKAGE_DIR=${CMAKE_BINARY_DIR}"

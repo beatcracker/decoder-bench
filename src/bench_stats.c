@@ -312,6 +312,45 @@ void bench_stats_compute(const FrameRecord *records, int count, int fps, const B
     }
 }
 
+void bench_stats_init_empty(const BenchSummaryInputs *inputs, BenchSummary *summary) {
+    if (summary == NULL) {
+        return;
+    }
+    memset(summary, 0, sizeof(*summary));
+    if (inputs == NULL) {
+        return;
+    }
+    summary->run_length_mode = inputs->run_length_mode;
+    summary->target_frames = inputs->target_frames > 0 ? (uint32_t)inputs->target_frames : 0;
+    summary->duration_sec = inputs->duration_sec > 0 ? (uint32_t)inputs->duration_sec : 0;
+    summary->source_mode = inputs->source_mode;
+    summary->source_buffer_mib = inputs->source_buffer_mib;
+}
+
+void bench_stats_aggregate_outcome(BenchTestOutcome outcome, BenchVerdict verdict, BenchVerdict *worst,
+                                   int *completed_tests, int *unsupported_tests) {
+    if (worst == NULL || completed_tests == NULL || unsupported_tests == NULL) {
+        return;
+    }
+
+    switch (outcome) {
+    case BENCH_TEST_UNSUPPORTED:
+        if (*unsupported_tests < INT_MAX) {
+            (*unsupported_tests)++;
+        }
+        break;
+    case BENCH_TEST_COMPLETED:
+        if (verdict > *worst) {
+            *worst = verdict;
+        }
+        if (*completed_tests < INT_MAX) {
+            (*completed_tests)++;
+        }
+        break;
+    default:
+        break;
+    }
+}
 /* ---------- CSV output ---------- */
 
 static const char *codec_name(SS4S_VideoCodec codec) {
@@ -399,7 +438,7 @@ int bench_stats_write_summary_csv(const char *path, const char *scope_name, cons
                    "feed_errors,late_submits,late_submit_pct,wake_avg_us,wake_max_us,"
                    "submit_avg_us,submit_max_us,max_late_us,decoder_latency_available,"
                    "decoder_latency_avg_us,decoder_latency_max_us,latency_probe_stall_max_frames,"
-                   "latency_growth_detected,verdict_reason,verdict_detail\n") < 0) {
+                   "latency_growth_detected,verdict_reason,verdict_detail,test_outcome\n") < 0) {
         fclose(f);
         fprintf(stderr, "bench_stats: cannot write '%s'\n", path);
         return -1;
@@ -414,13 +453,20 @@ int bench_stats_write_summary_csv(const char *path, const char *scope_name, cons
         char verdict_reason[BENCH_VERDICT_REASON_LEN];
         char verdict_detail[BENCH_VERDICT_DETAIL_LEN];
 
-        format_verdict_reason(summary, verdict_reason, sizeof(verdict_reason), verdict_detail, sizeof(verdict_detail));
+        if (row->test_outcome == BENCH_TEST_UNSUPPORTED) {
+            copy_reason(verdict_reason, sizeof(verdict_reason), "unsupported-codec");
+            verdict_detail[0] = '\0';
+        } else {
+            format_verdict_reason(summary, verdict_reason, sizeof(verdict_reason), verdict_detail,
+                                  sizeof(verdict_detail));
+        }
 
         if (csv_write_string(f, scope_name) != 0 || fprintf(f, ",") < 0 || csv_write_string(f, row->test_name) != 0 ||
             fprintf(f, ",") < 0 || csv_write_string(f, row->fixture) != 0 || fprintf(f, ",") < 0 ||
             csv_write_string(f, codec_name(row->info.codec)) != 0 ||
             fprintf(f, ",%d,%d,%d,%d,", row->info.width, row->info.height, row->info.fps, row->info.run_seconds) < 0 ||
-            csv_write_string(f, bench_verdict_str(summary->verdict)) != 0 ||
+            csv_write_string(
+                f, row->test_outcome == BENCH_TEST_UNSUPPORTED ? "" : bench_verdict_str(summary->verdict)) != 0 ||
             fprintf(f, ",%u,%u,", summary->frames_submitted, summary->target_frames) < 0 ||
             csv_write_string(f, bench_run_length_mode_str(summary->run_length_mode)) != 0 || fprintf(f, ",") < 0 ||
             csv_write_string(f, bench_stop_reason_str(summary->stop_reason)) != 0 || fprintf(f, ",") < 0 ||
@@ -436,7 +482,8 @@ int bench_stats_write_summary_csv(const char *path, const char *scope_name, cons
                     summary->max_decoder_latency_us, summary->latency_probe_stall_max_frames,
                     summary->latency_growth_detected ? 1 : 0) < 0 ||
             fprintf(f, ",") < 0 || csv_write_string(f, verdict_reason) != 0 || fprintf(f, ",") < 0 ||
-            csv_write_string(f, verdict_detail) != 0 || fprintf(f, "\n") < 0) {
+            csv_write_string(f, verdict_detail) != 0 || fprintf(f, ",") < 0 ||
+            csv_write_string(f, bench_test_outcome_str(row->test_outcome)) != 0 || fprintf(f, "\n") < 0) {
             fclose(f);
             fprintf(stderr, "bench_stats: cannot write '%s'\n", path);
             return -1;
@@ -462,6 +509,17 @@ const char *bench_verdict_str(BenchVerdict v) {
         return "FAIL";
     default:
         return "???";
+    }
+}
+
+const char *bench_test_outcome_str(BenchTestOutcome outcome) {
+    switch (outcome) {
+    case BENCH_TEST_COMPLETED:
+        return "completed";
+    case BENCH_TEST_UNSUPPORTED:
+        return "unsupported";
+    default:
+        return "unknown";
     }
 }
 

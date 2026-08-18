@@ -26,6 +26,12 @@ void bench_stats_compute(const FrameRecord *records, int count, int fps, const B
                          bool require_decoder_latency, BenchSummary *summary);
 
 /**
+ * Initialize a metric-free summary for a row that did not enter the measured
+ * feed loop.
+ */
+void bench_stats_init_empty(const BenchSummaryInputs *inputs, BenchSummary *summary);
+
+/**
  * Write per-frame CSV after the run completes.
  *
  * @param path Output CSV path.
@@ -63,3 +69,14 @@ void bench_stats_print_summary(const char *test_name, const StreamInfo *info, co
  * Return a string representation of a verdict.
  */
 const char *bench_verdict_str(BenchVerdict v);
+
+/**
+ * Return the stable summary-CSV spelling of a test outcome.
+ */
+const char *bench_test_outcome_str(BenchTestOutcome outcome);
+
+/**
+ * Fold one completed or unsupported row into overall counters.
+ */
+void bench_stats_aggregate_outcome(BenchTestOutcome outcome, BenchVerdict verdict, BenchVerdict *worst,
+                                   int *completed_tests, int *unsupported_tests);

@@ -43,6 +43,11 @@ typedef enum BenchVerdict {
     BENCH_VERDICT_FAIL = 2,
 } BenchVerdict;
 
+typedef enum BenchTestOutcome {
+    BENCH_TEST_COMPLETED = 0,
+    BENCH_TEST_UNSUPPORTED = 1,
+} BenchTestOutcome;
+
 typedef enum BenchRunLengthMode {
     BENCH_RUN_LENGTH_EXPLICIT = 0,
     BENCH_RUN_LENGTH_AUTO = 1,
@@ -184,6 +189,7 @@ typedef struct BenchSummaryRow {
     char fixture[BENCH_MAX_NAME_LEN];
     StreamInfo info;
     BenchSummary summary;
+    BenchTestOutcome test_outcome;
 } BenchSummaryRow;
 
 /**
