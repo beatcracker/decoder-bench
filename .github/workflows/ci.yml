@@ -45,5 +45,22 @@ jobs:
       - name: Check
         run: mise run check
 
-      - name: Build
-        run: mise run build-webos
+      - name: Package
+        run: mise run package-webos
+
+      - name: Verify test IPK
+        shell: bash
+        run: |
+          shopt -s nullglob
+          ipks=(build/webos/*.ipk)
+          if (( ${#ipks[@]} != 1 )); then
+            printf 'expected exactly one test IPK, found %d\n' "${#ipks[@]}" >&2
+            exit 1
+          fi
+
+      - name: Upload test IPK
+        uses: actions/upload-artifact@v4
+        with:
+          name: decoder-bench-webos-${{ github.sha }}
+          path: build/webos/*.ipk
+          if-no-files-found: error
