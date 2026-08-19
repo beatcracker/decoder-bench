@@ -358,6 +358,7 @@ endif ()
 decoder_bench_c_target(bench-core)
 
 add_executable(decoder-bench
+        src/bench_display.c
         src/bench_main.c
         src/bench_platform.c)
 target_link_libraries(decoder-bench PRIVATE
@@ -460,6 +461,24 @@ if (BUILD_TESTING)
     target_link_libraries(tests_bench_decoder_support PRIVATE bench-core-testhooks)
     decoder_bench_c_target(tests_bench_decoder_support)
     add_test(NAME bench-decoder-support COMMAND tests_bench_decoder_support)
+
+    add_executable(tests_bench_feeder_events tests/bench_feeder_events_test.c)
+    target_link_libraries(tests_bench_feeder_events PRIVATE bench-core-testhooks)
+    target_link_options(tests_bench_feeder_events PRIVATE
+            "LINKER:--wrap=SS4S_PlayerVideoFeed"
+            "LINKER:--wrap=SS4S_PlayerGetVideoLatency")
+    decoder_bench_c_target(tests_bench_feeder_events)
+    add_test(NAME bench-feeder-events COMMAND tests_bench_feeder_events)
+
+    add_executable(tests_bench_display
+            tests/bench_display_test.c
+            src/bench_display.c)
+    target_link_libraries(tests_bench_display PRIVATE bench-core PkgConfig::SDL2)
+    target_include_directories(tests_bench_display PRIVATE
+            src
+            ${CMAKE_CURRENT_BINARY_DIR})
+    decoder_bench_c_target(tests_bench_display)
+    add_test(NAME bench-display COMMAND tests_bench_display)
 
     add_executable(tests_bench_video_only_selection tests/bench_video_only_selection_test.c)
     target_link_libraries(tests_bench_video_only_selection PRIVATE commons-ss4s-modules-list)

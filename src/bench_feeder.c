@@ -204,9 +204,15 @@ int bench_feed_loop(SS4S_Player *player, BenchSource *source, int fps, int targe
             *stop_reason = BENCH_STOP_USER;
             return 0;
         }
-        if (pump_events != NULL && !pump_events(pump_ctx)) {
-            *stop_reason = BENCH_STOP_USER;
-            return 0;
+        if (pump_events != NULL) {
+            BenchEventPumpResult pump_result = pump_events(pump_ctx);
+            if (pump_result == BENCH_EVENT_PUMP_STOP) {
+                *stop_reason = BENCH_STOP_USER;
+                return 0;
+            }
+            if (pump_result != BENCH_EVENT_PUMP_CONTINUE) {
+                return -1;
+            }
         }
 
         int64_t target_ns = start_time_ns + ((int64_t)i * 1000000000LL) / fps;

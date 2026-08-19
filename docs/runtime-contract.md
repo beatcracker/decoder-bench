@@ -20,6 +20,13 @@ setup, Moonlight UI behavior, or end-to-end streaming.
   validation only.
 - The core runtime feeds one complete access unit per frame and records timing
   after the measured loop.
+- Direct NDL video is presented behind the app's SDL/Wayland UI plane. The SDL
+  video surface remains alive and is cleared and presented transparently once
+  per feed iteration so it does not cover the decoded plane.
+- SDL event and transparent-surface servicing happens before the absolute
+  feeder deadline and outside the measured decoder submission interval. A
+  surface-service failure aborts the suite as an infrastructure error rather
+  than producing a partial decoder result.
 - Fixtures are read through `BenchSource`, which validates the first access
   unit, detects stream metadata, preserves access-unit boundaries, and reports
   the source mode written into logs and summary CSV.
@@ -100,7 +107,7 @@ Exit codes are:
 - `0`: pass, unsupported-only, or stopped by operator
 - `1`: warn
 - `2`: fail
-- `3`: invalid input or configuration
+- `3`: infrastructure, input, or configuration error
 
 Operator-facing verdicts are:
 

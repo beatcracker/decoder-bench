@@ -16,8 +16,6 @@
 #include <sys/stat.h>
 #include <time.h>
 
-#include <SDL2/SDL.h>
-
 #include "config.h"
 
 #include "array_list.h"
@@ -27,6 +25,7 @@
 #include "ss4s_modules.h"
 
 #include "bench_decoder_support.h"
+#include "bench_display.h"
 #include "bench_feeder.h"
 #include "bench_path.h"
 #include "bench_platform.h"
@@ -77,6 +76,7 @@ typedef enum run_status {
     RUN_STATUS_OK = 0,
     RUN_STATUS_STOPPED = 1,
     RUN_STATUS_INVALID = -1,
+    RUN_STATUS_PLATFORM_ERROR = -2,
 } run_status_t;
 
 typedef enum execution_plan_kind {
@@ -132,7 +132,7 @@ static void print_usage(const char *prog) {
            "     or the run was stopped cleanly\n"
            "  1  One or more completed tests WARN, none FAIL\n"
            "  2  One or more completed tests FAIL\n"
-           "  3  Invalid config, fixture, or CLI usage\n",
+           "  3  Infrastructure, configuration, fixture, or CLI error\n",
            prog, BENCH_AUTO_CAP_SECONDS, BENCH_SOURCE_BUFFER_MIN_MIB, BENCH_SOURCE_BUFFER_MAX_MIB,
            BENCH_SOURCE_BUFFER_DEFAULT_MIB);
 }
@@ -528,20 +528,6 @@ static int build_scoped_results_path(const char *results_root, const char *scope
     return bench_path_join(out, out_size, results_root, file_name);
 }
 
-static bool pump_sdl_events(void *ctx) {
-    (void)ctx;
-
-    SDL_Event event;
-    while (SDL_PollEvent(&event)) {
-        if (event.type == SDL_QUIT) {
-            g_interrupted = 1;
-        } else if (event.type == SDL_KEYDOWN && bench_platform_should_stop_for_key(&event.key)) {
-            g_interrupted = 1;
-        }
-    }
-    return g_interrupted == 0;
-}
-
 static void print_run_options(const cli_opts_t *opts, bool loop_enabled) {
     unsigned int mib = opts->source_buffer_mib != 0 ? opts->source_buffer_mib : BENCH_SOURCE_BUFFER_DEFAULT_MIB;
     printf("Loop mode: %s\n", loop_enabled ? "enabled" : "disabled");
@@ -623,7 +609,7 @@ static run_status_t run_single_test_with_source(const char *scope_name, const ch
                                                 BenchSource *source, int fps, int run_seconds, bool auto_mode,
                                                 const char *results_root,
                                                 const SS4S_VideoCapabilities *video_capabilities,
-                                                bool require_decoder_latency, int viewport_width, int viewport_height,
+                                                bool require_decoder_latency, BenchDisplay *display,
                                                 test_run_result_t *out_result) {
     SS4S_Player *player = NULL;
     bool video_open = false;
@@ -634,9 +620,11 @@ static run_status_t run_single_test_with_source(const char *scope_name, const ch
     BenchStopReason stop_reason = BENCH_STOP_NONE;
     BenchSourceError source_error = BENCH_SOURCE_ERROR_NONE;
     run_status_t status = RUN_STATUS_INVALID;
+    int viewport_width = 0;
+    int viewport_height = 0;
 
-    if (out_result == NULL || test_name == NULL || fixture_path == NULL || source == NULL || viewport_width <= 0 ||
-        viewport_height <= 0) {
+    if (out_result == NULL || test_name == NULL || fixture_path == NULL || source == NULL || display == NULL ||
+        bench_display_get_viewport(display, &viewport_width, &viewport_height) != 0) {
         return RUN_STATUS_INVALID;
     }
 
@@ -750,13 +738,18 @@ static run_status_t run_single_test_with_source(const char *scope_name, const ch
 
     int feed_target_frames = auto_mode ? 0 : (int)target_frames_64;
     feed_rc = bench_feed_loop(player, source, fps, feed_target_frames, records, max_records, &records_written,
-                              pump_sdl_events, NULL, &g_interrupted, &stop_reason, &source_error);
-    (void)feed_rc;
+                              bench_display_service, display, &g_interrupted, &stop_reason, &source_error);
 
     SS4S_PlayerVideoClose(player);
     SS4S_PlayerClose(player);
     video_open = false;
     player = NULL;
+
+    if (feed_rc != 0) {
+        fprintf(stderr, "  presentation service failed; aborting benchmark\n");
+        status = RUN_STATUS_PLATFORM_ERROR;
+        goto cleanup;
+    }
 
     if (stop_reason == BENCH_STOP_USER) {
         printf("  stopped by user\n");
@@ -842,7 +835,7 @@ static int storage_warmup_if_needed(const BenchSuite *suite) {
 
 static run_status_t run_direct_once(const execution_plan_t *plan, const cli_opts_t *opts, const char *results_root,
                                     const SS4S_VideoCapabilities *video_capabilities, bool require_decoder_latency,
-                                    int viewport_width, int viewport_height, BenchVerdict *worst, int *completed_tests,
+                                    BenchDisplay *display, BenchVerdict *worst, int *completed_tests,
                                     int *unsupported_tests) {
     test_run_result_t result;
     BenchSummaryRow row;
@@ -862,9 +855,9 @@ static run_status_t run_direct_once(const execution_plan_t *plan, const cli_opts
         return RUN_STATUS_INVALID;
     }
 
-    status = run_single_test_with_source(
-        plan->direct_scope, plan->direct_scope, plan->direct_file, src, plan->direct_fps, plan->direct_run_seconds,
-        auto_mode, results_root, video_capabilities, require_decoder_latency, viewport_width, viewport_height, &result);
+    status = run_single_test_with_source(plan->direct_scope, plan->direct_scope, plan->direct_file, src,
+                                         plan->direct_fps, plan->direct_run_seconds, auto_mode, results_root,
+                                         video_capabilities, require_decoder_latency, display, &result);
     bench_source_close(src);
     if (status != RUN_STATUS_OK) {
         return status;
@@ -878,8 +871,8 @@ static run_status_t run_direct_once(const execution_plan_t *plan, const cli_opts
 
 static run_status_t run_suite_once(const char *bench_root, const char *suite_name, const cli_opts_t *opts,
                                    const char *results_root, const SS4S_VideoCapabilities *video_capabilities,
-                                   bool require_decoder_latency, int viewport_width, int viewport_height,
-                                   BenchVerdict *worst, int *completed_tests, int *unsupported_tests) {
+                                   bool require_decoder_latency, BenchDisplay *display, BenchVerdict *worst,
+                                   int *completed_tests, int *unsupported_tests) {
     BenchSuite suite;
     BenchSummaryRow rows[BENCH_MAX_TESTS];
     int row_count = 0;
@@ -943,19 +936,15 @@ static run_status_t run_suite_once(const char *bench_root, const char *suite_nam
         }
 
         test_run_result_t result;
-        run_status_t status = run_single_test_with_source(
-            suite.name, suite.tests[i].name, suite.tests[i].file, current_source, suite.tests[i].fps,
-            suite.tests[i].run_seconds, false, results_root, video_capabilities, require_decoder_latency,
-            viewport_width, viewport_height, &result);
+        run_status_t status =
+            run_single_test_with_source(suite.name, suite.tests[i].name, suite.tests[i].file, current_source,
+                                        suite.tests[i].fps, suite.tests[i].run_seconds, false, results_root,
+                                        video_capabilities, require_decoder_latency, display, &result);
         bench_source_close(current_source);
         current_source = NULL;
 
-        if (status == RUN_STATUS_STOPPED) {
-            result_status = RUN_STATUS_STOPPED;
-            break;
-        }
-        if (status == RUN_STATUS_INVALID) {
-            result_status = RUN_STATUS_INVALID;
+        if (status != RUN_STATUS_OK) {
+            result_status = status;
             break;
         }
 
@@ -1075,12 +1064,11 @@ int main(int argc, char *argv[]) {
     int exit_code = 3;
     bool show_overall = false;
     bool stopped = false;
+    bool presentation_failed = false;
     bool modules_ready = false;
     bool os_info_ready = false;
-    bool sdl_ready = false;
     bool ss4s_ready = false;
-    SDL_Window *window = NULL;
-    SDL_Renderer *renderer = NULL;
+    BenchDisplay display = {0};
     array_list_t modules = {0};
     os_info_t os_info = {0};
     SS4S_VideoCapabilities video_capabilities = {0};
@@ -1088,8 +1076,6 @@ int main(int argc, char *argv[]) {
     BenchVerdict worst = BENCH_VERDICT_PASS;
     int completed_tests = 0;
     int unsupported_tests = 0;
-    int viewport_width = 0;
-    int viewport_height = 0;
     char results_root[BENCH_MAX_PATH_LEN];
     const char *results_root_arg = NULL;
     BenchLaunchContext launch_ctx;
@@ -1241,12 +1227,10 @@ int main(int argc, char *argv[]) {
            video_module_name != NULL ? video_module_name : "unnamed");
 
     bench_platform_apply_sdl_hints();
-    if (SDL_Init(SDL_INIT_VIDEO) != 0) {
-        fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
+    if (bench_display_init_sdl(&display) != 0) {
         bench_platform_toast("Video startup failed", false, BENCH_TOAST_ERROR_TIMEOUT_SEC);
         goto cleanup;
     }
-    sdl_ready = true;
 
     SS4S_Config config = {
         .audioDriver = NULL,
@@ -1265,53 +1249,10 @@ int main(int argc, char *argv[]) {
         goto cleanup;
     }
 
-#if FEATURE_FORCE_FULLSCREEN
-#if FEATURE_WINDOW_FULLSCREEN_DESKTOP
-    const Uint32 window_flags = SDL_WINDOW_FULLSCREEN_DESKTOP;
-#else
-    const Uint32 window_flags = SDL_WINDOW_FULLSCREEN;
-#endif
-    SDL_DisplayMode display_mode;
-    if (SDL_GetDisplayMode(0, 0, &display_mode) != 0 || display_mode.w <= 0 || display_mode.h <= 0) {
-        fprintf(stderr, "SDL_GetDisplayMode failed: %s\n", SDL_GetError());
-        bench_platform_toast("Display mode unavailable", false, BENCH_TOAST_ERROR_TIMEOUT_SEC);
-        goto cleanup;
-    }
-    const int window_width = display_mode.w;
-    const int window_height = display_mode.h;
-#else
-    const Uint32 window_flags = SDL_WINDOW_SHOWN;
-    const int window_width = 1280;
-    const int window_height = 720;
-#endif
-
-    window = SDL_CreateWindow("decoder-bench", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, window_width,
-                              window_height, window_flags);
-    if (window == NULL) {
-        fprintf(stderr, "SDL_CreateWindow failed: %s\n", SDL_GetError());
+    if (bench_display_create_surface(&display, bench_platform_should_stop_for_key) != 0) {
         bench_platform_toast("Window creation failed", false, BENCH_TOAST_ERROR_TIMEOUT_SEC);
         goto cleanup;
     }
-    SDL_GetWindowSize(window, &viewport_width, &viewport_height);
-    if (viewport_width <= 0 || viewport_height <= 0) {
-        fprintf(stderr, "SDL_GetWindowSize returned invalid size %dx%d\n", viewport_width, viewport_height);
-        bench_platform_toast("Window size invalid", false, BENCH_TOAST_ERROR_TIMEOUT_SEC);
-        goto cleanup;
-    }
-
-    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
-    if (renderer == NULL) {
-        fprintf(stderr, "SDL_CreateRenderer accelerated failed: %s; trying software renderer\n", SDL_GetError());
-        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-        if (renderer == NULL) {
-            fprintf(stderr, "SDL_CreateRenderer software failed: %s\n", SDL_GetError());
-            bench_platform_toast("Renderer creation failed", false, BENCH_TOAST_ERROR_TIMEOUT_SEC);
-            goto cleanup;
-        }
-    }
-    (void)SDL_SetRenderDrawColor(renderer, 0, 0, 0, 0);
-    (void)SDL_RenderClear(renderer);
-    SDL_RenderPresent(renderer);
 
     if (SS4S_PostInit(launch_ctx.argc, launch_ctx.argv) != 0) {
         fprintf(stderr, "SS4S_PostInit failed\n");
@@ -1367,16 +1308,23 @@ int main(int argc, char *argv[]) {
         if (plan.kind == EXECUTION_PLAN_DIRECT_FILE) {
             status = run_direct_once(&plan, &opts, results_root_arg,
                                      video_capabilities_available ? &video_capabilities : NULL, require_decoder_latency,
-                                     viewport_width, viewport_height, &worst, &completed_tests, &unsupported_tests);
+                                     &display, &worst, &completed_tests, &unsupported_tests);
         } else {
             for (int i = 0; i < plan.suite_count && status == RUN_STATUS_OK && g_interrupted == 0; i++) {
                 status =
                     run_suite_once(plan.bench_root, plan.suite_names[i], &opts, results_root_arg,
                                    video_capabilities_available ? &video_capabilities : NULL, require_decoder_latency,
-                                   viewport_width, viewport_height, &worst, &completed_tests, &unsupported_tests);
+                                   &display, &worst, &completed_tests, &unsupported_tests);
             }
         }
 
+        if (status == RUN_STATUS_PLATFORM_ERROR) {
+            fprintf(stderr, "Presentation error: transparent SDL surface servicing failed\n");
+            bench_platform_toast("Presentation failed; benchmark aborted", false, BENCH_TOAST_ERROR_TIMEOUT_SEC);
+            presentation_failed = true;
+            exit_code = 3;
+            break;
+        }
         if (status == RUN_STATUS_INVALID) {
             exit_code = 3;
             break;
@@ -1398,7 +1346,9 @@ int main(int argc, char *argv[]) {
 
 cleanup:
     if (show_overall) {
-        if (exit_code == 3) {
+        if (presentation_failed) {
+            printf("\n=== Overall: PRESENTATION ERROR ===\n");
+        } else if (exit_code == 3) {
             printf("\n=== Overall: INVALID ===\n");
             bench_platform_toast("/!\\ Benchmark INVALID", false, BENCH_TOAST_ERROR_TIMEOUT_SEC);
         } else if (stopped && completed_tests == 0) {
@@ -1429,12 +1379,7 @@ cleanup:
         }
     }
 
-    if (renderer != NULL) {
-        SDL_DestroyRenderer(renderer);
-    }
-    if (window != NULL) {
-        SDL_DestroyWindow(window);
-    }
+    bench_display_destroy_surface(&display);
     if (ss4s_ready) {
         SS4S_Quit();
     }
@@ -1444,9 +1389,7 @@ cleanup:
     if (os_info_ready) {
         os_info_clear(&os_info);
     }
-    if (sdl_ready) {
-        SDL_Quit();
-    }
+    bench_display_quit_sdl(&display);
     bench_platform_free_launch(&launch_ctx);
 
     if (exit_code >= 0) {
